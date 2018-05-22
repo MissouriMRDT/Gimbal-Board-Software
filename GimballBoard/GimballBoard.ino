@@ -47,10 +47,16 @@ const uint8_t ROLL_SERVO_PIN = PK_1;
 const uint8_t CAMERA_ZOOM_PIN  = PK_0; //Camera Zoom  runs off X7 Limit Switch 2
 const uint8_t CAMERA_FOCUS_PIN = PB_5; //Camera Focus runs off X7 Limit Switch 3
 
-//Zoom Setup
+//Zoom Setup//////////////////////////
 const int CAMERA_SHORT_SIGNAL  = 1000;
 const int CAMERA_MIDDLE_SIGNAL = 1500;
 const int CAMERA_LONG_SIGNAL   = 2000;
+
+//Mast Encoder Setup///////////////////////
+const uint16_t MAST_UP_SERVO_VALUE    = 1;
+const uint16_t MAST_DOWN_SERVO_VALUE  = 1;
+const int      MAST_CLOSED_LOOP_SPEED = 300; 
+uint16_t       mast_move_to_position  = 0;
 
 ////////////////////
 // RoveComm Setup //
@@ -94,6 +100,8 @@ void setup()
 
   digitalWrite(CAMERA_ZOOM_PIN,  0); 
   digitalWrite(CAMERA_FOCUS_PIN, 0);
+  
+  pinMode(MAST_ENCODER_PIN, INPUT);
   delay(10);
    
   Watchdog.begin(estop, 500);
@@ -169,23 +177,38 @@ void loop()
         Watchdog.clear(); 
     }  
     
-    case MAST_MOVE_CLOSED_LOOP: //ToDo: Add movement limits
+    case MAST_MOVE_OPEN_LOOP:
     {
+      if(
       int mast_speed = *(int16_t*)(data);       
-      MastMotor.drive(mast_speed);       
+      MastMotor.drive(mast_speed);  
+      mast_move_to_position = 0;     
       Watchdog.clear();
       break;
     }
 
- /*   case MAST_MOVE_TO_POSITION://ToDo once I have a spec
+   case MAST_MOVE_TO_POSITION://ToDo once I have a spec
     {    
+      mast_move_to_position = data+1
       Watchdog.clear();
       break;
-    }*/
+    }
     
     default:
       break;
   }//End Switch Data ID
+
+  ////////////////////////////////////////
+  //     Mast Closed Loop Functions     //
+  ////////////////////////////////////////
+
+  if((analogRead(MAST_ENCODER_PIN) >= MAST_UP_SERVO_VALUE) || (analogRead(MAST_ENCODER_PIN) <= MAST_DOWN_SERVO_VALUE)) MastMotor.brake(0);
+  
+  if(mast_move_to_position)
+  {
+    if(mast_move_to_position = 1) MastMotor.drive(-MAST_CLOSED_LOOP_SPEED);
+    if(mast_move_to_position = 2) MastMotor.drive( MAST_CLOSED_LOOP_SPEED);
+  }
 }
 
 //////////////////////////
