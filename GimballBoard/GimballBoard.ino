@@ -37,7 +37,6 @@ const uint8_t MAST_PWM_PIN           = PF_1;
 
 const uint8_t MAST_TOP_LIMIT_SWITCH_PIN    = PE_3;  //Using X9 Limit Switch 1
 const uint8_t MAST_BOTTOM_LIMIT_SWITCH_PIN = PE_2;  //Using X9 Limit Switch 2
-const uint8_t MAST_ENCODER_PIN             = PD_0;  //Using X9 Encoder 1
 
 //////////////////////////////////////////
 //Roll Servo runs off X7 Limit Switch 1
@@ -57,6 +56,7 @@ const uint16_t MAST_UP_SERVO_VALUE    = 1;
 const uint16_t MAST_DOWN_SERVO_VALUE  = 1;
 const int      MAST_CLOSED_LOOP_SPEED = 300; 
 uint16_t       mast_move_to_position  = 0;
+bool           mast_going_up;
 
 ////////////////////
 // RoveComm Setup //
@@ -94,14 +94,15 @@ void setup()
   
   RollServo.attach(ROLL_SERVO_PIN);
   delay(10);
-
+  RollServo.write(90);
   pinMode(CAMERA_ZOOM_PIN,  OUTPUT);
   pinMode(CAMERA_FOCUS_PIN, OUTPUT);
 
   digitalWrite(CAMERA_ZOOM_PIN,  0); 
   digitalWrite(CAMERA_FOCUS_PIN, 0);
   
-  pinMode(MAST_ENCODER_PIN, INPUT);
+  pinMode(MAST_TOP_LIMIT_SWITCH_PIN,    INPUT);
+  pinMode(MAST_BOTTOM_LIMIT_SWITCH_PIN, INPUT);
   delay(10);
    
   Watchdog.begin(estop, 500);
@@ -179,8 +180,18 @@ void loop()
     
     case MAST_MOVE_OPEN_LOOP:
     {
-      if(
-      int mast_speed = *(int16_t*)(data);       
+      int mast_speed = *(int16_t*)(data);  
+
+      mast_going_up = (mast_speed == abs(mast_speed));
+      if(digitalRead(MAST_TOP_LIMIT_SWITCH_PIN)    && mast_going_up);
+      {
+        break;  
+      }
+      else if(digitalRead(MAST_BOTTOM_LIMIT_SWITCH_PIN) && !mast_going_up);
+      {
+        break;  
+      }
+      
       MastMotor.drive(mast_speed);  
       mast_move_to_position = 0;     
       Watchdog.clear();
@@ -189,7 +200,7 @@ void loop()
 
    case MAST_MOVE_TO_POSITION://ToDo once I have a spec
     {    
-      mast_move_to_position = data+1
+      mast_move_to_position = data+1//I asked Skelton to send 1 for position down, 2 for position up
       Watchdog.clear();
       break;
     }
@@ -199,15 +210,25 @@ void loop()
   }//End Switch Data ID
 
   ////////////////////////////////////////
-  //     Mast Closed Loop Functions     //
+  //        Mast   Functions            //
   ////////////////////////////////////////
-
-  if((analogRead(MAST_ENCODER_PIN) >= MAST_UP_SERVO_VALUE) || (analogRead(MAST_ENCODER_PIN) <= MAST_DOWN_SERVO_VALUE)) MastMotor.brake(0);
-  
-  if(mast_move_to_position)
+  if(digitalRead(MAST_TOP_LIMIT_SWITCH_PIN)    && mast_going_up);
   {
-    if(mast_move_to_position = 1) MastMotor.drive(-MAST_CLOSED_LOOP_SPEED);
-    if(mast_move_to_position = 2) MastMotor.drive( MAST_CLOSED_LOOP_SPEED);
+    MastMotor.brake(0); 
+  }
+  else if(digitalRead(MAST_BOTTOM_LIMIT_SWITCH_PIN) && !mast_going_up);
+  {
+    MastMotor.brake(0);   
+  }
+  else if(mast_move_to_position = 1)
+  {
+    MastMotor.drive(-MAST_CLOSED_LOOP_SPEED);
+    mast_going_up = FALSE;
+  }
+  else if(mast_move_to_position = 2) 
+  {
+    MastMotor.drive( MAST_CLOSED_LOOP_SPEED);
+    mast_going_up = TRUE;
   }
 }
 
