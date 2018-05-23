@@ -55,7 +55,7 @@ const int CAMERA_LONG_SIGNAL   = 2000;
 const uint16_t MAST_UP_SERVO_VALUE    = 1;
 const uint16_t MAST_DOWN_SERVO_VALUE  = 1;
 const int      MAST_CLOSED_LOOP_SPEED = 300; 
-uint16_t       mast_move_to_position  = 0;
+uint8_t        mast_move_to_position  = 0;
 bool           mast_going_up;
 
 ////////////////////
@@ -85,7 +85,7 @@ void setup()
   RoveComm.begin(ROVE_FIRST_OCTET, ROVE_SECOND_OCTET, ROVE_THIRD_OCTET, GIMBALBOARD_FOURTH_OCTET);
   delay(1);
   
-  Serial.begin(9600);
+ // Serial.begin(9600);
   delay(1);
   
   PanMotor.begin( PAN_INA_PIN,  PAN_INB_PIN,  PAN_PWM_PIN);
@@ -180,27 +180,29 @@ void loop()
     
     case MAST_MOVE_OPEN_LOOP:
     {
+      Watchdog.clear();
+      mast_move_to_position = 0; 
       int mast_speed = *(int16_t*)(data);  
-
       mast_going_up = (mast_speed == abs(mast_speed));
-      if(digitalRead(MAST_TOP_LIMIT_SWITCH_PIN)    && mast_going_up);
+      if(digitalRead(MAST_TOP_LIMIT_SWITCH_PIN)    && mast_going_up)
       {
+        MastMotor.brake(0);
         break;  
       }
-      else if(digitalRead(MAST_BOTTOM_LIMIT_SWITCH_PIN) && !mast_going_up);
+      else if(digitalRead(MAST_BOTTOM_LIMIT_SWITCH_PIN) && !mast_going_up)
       {
+        MastMotor.brake(0);
         break;  
+        
       }
       
       MastMotor.drive(mast_speed);  
-      mast_move_to_position = 0;     
-      Watchdog.clear();
       break;
     }
 
-   case MAST_MOVE_TO_POSITION://ToDo once I have a spec
+   case MAST_MOVE_TO_POSITION:
     {    
-      mast_move_to_position = data+1//I asked Skelton to send 1 for position down, 2 for position up
+      mast_move_to_position = data[0]+1; //I asked Skelton to send 0 for position down, 1 for position up
       Watchdog.clear();
       break;
     }
@@ -212,24 +214,46 @@ void loop()
   ////////////////////////////////////////
   //        Mast   Functions            //
   ////////////////////////////////////////
-  if(digitalRead(MAST_TOP_LIMIT_SWITCH_PIN)    && mast_going_up);
+  Serial.println(mast_move_to_position);
+  
+  if(mast_move_to_position == 1)
+  {
+    if(digitalRead(MAST_BOTTOM_LIMIT_SWITCH_PIN))
+    {
+      mast_move_to_position = 0;
+    }
+    else
+    {
+      MastMotor.drive(-MAST_CLOSED_LOOP_SPEED);
+      Serial.println("Going DOWN");
+     mast_going_up = 0;
+    }
+  }
+  else if(mast_move_to_position == 2) 
+  {
+    if(digitalRead(MAST_TOP_LIMIT_SWITCH_PIN))
+    {
+      mast_move_to_position = 0;
+    }
+    else
+    {
+      MastMotor.drive( MAST_CLOSED_LOOP_SPEED);
+      Serial.println("Going UP");
+      mast_going_up = 1;
+    }
+    
+  }
+  
+  if(digitalRead(MAST_TOP_LIMIT_SWITCH_PIN)    && mast_going_up)
   {
     MastMotor.brake(0); 
   }
-  else if(digitalRead(MAST_BOTTOM_LIMIT_SWITCH_PIN) && !mast_going_up);
+  else if(digitalRead(MAST_BOTTOM_LIMIT_SWITCH_PIN) && !mast_going_up)
   {
     MastMotor.brake(0);   
   }
-  else if(mast_move_to_position = 1)
-  {
-    MastMotor.drive(-MAST_CLOSED_LOOP_SPEED);
-    mast_going_up = FALSE;
-  }
-  else if(mast_move_to_position = 2) 
-  {
-    MastMotor.drive( MAST_CLOSED_LOOP_SPEED);
-    mast_going_up = TRUE;
-  }
+  
+  
 }
 
 //////////////////////////
@@ -238,6 +262,7 @@ void estop()
   PanMotor.brake(0);  
   TiltMotor.brake(0);
   MastMotor.brake(0); 
+  Serial.println("WatchDog Triggered");
   return;     
 }
 
