@@ -58,6 +58,16 @@ const int      MAST_CLOSED_LOOP_SPEED = 300;
 uint8_t        mast_move_to_position  = 0;
 bool           mast_going_up;
 
+//Map Values//////////////////////
+const int PAN_MAX_FORWARD  =  250;
+const int PAN_MAX_REVERSE  = -250;
+
+const int TILT_MAX_FORWARD =  250;
+const int TILT_MAX_REVERSE = -250;
+
+const int MAST_MAX_FORWARD =  250;
+const int MAST_MAX_REVERSE = -250;
+
 ////////////////////
 // RoveComm Setup //
 ////////////////////
@@ -113,11 +123,13 @@ void loop()
 {   
   RoveComm.read(&data_id, &data_size, data);
 
+  TiltMotor.drive(250);
   switch(data_id)
   {
     case GIMBAL_PAN:
     {
-      int pan_speed = *(int16_t*)(data);       
+      int pan_speed = *(int16_t*)(data);  
+      pan_speed = map(pan_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, PAN_MAX_REVERSE, PAN_MAX_FORWARD);
       PanMotor.drive(pan_speed);       
       Watchdog.clear();
       break;
@@ -125,7 +137,8 @@ void loop()
 
     case GIMBAL_TILT:
     {
-      int tilt_speed = *(int16_t*)(data);       
+      int tilt_speed = *(int16_t*)(data);   
+      tilt_speed = map(tilt_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, TILT_MAX_REVERSE, TILT_MAX_FORWARD);    
       TiltMotor.drive(tilt_speed);       
       Watchdog.clear();
       break;
@@ -183,6 +196,7 @@ void loop()
       Watchdog.clear();
       mast_move_to_position = 0; 
       int mast_speed = *(int16_t*)(data);  
+      mast_speed = map(mast_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, MAST_MAX_REVERSE, MAST_MAX_FORWARD);    
       mast_going_up = (mast_speed == abs(mast_speed));
       if(digitalRead(MAST_TOP_LIMIT_SWITCH_PIN)    && mast_going_up)
       {
