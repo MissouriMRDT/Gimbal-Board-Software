@@ -57,6 +57,7 @@ const uint16_t MAST_DOWN_SERVO_VALUE  = 1;
 const int      MAST_CLOSED_LOOP_SPEED = 300; 
 uint8_t        mast_move_to_position  = 0;
 bool           mast_going_up;
+int16_t        mast_speed;
 
 ////////////////////////////////
 int16_t roll_servo_position = 0;
@@ -74,9 +75,6 @@ const int MAST_MAX_REVERSE = -250;
 ////////////////////
 // RoveComm Setup //
 ////////////////////
-//RoveComm Instantiations/////
-RoveCommEthernetUdp  RoveComm;
-RoveWatchdog         Watchdog;
 
 //Read Variables////
 uint16_t data_id; 
@@ -94,10 +92,12 @@ Servo       CameraFocus;
 void estop(); // Watchdog Estop Function
 void generateCameraSignal(int amt, int pin);
 
+RoveWatchdog Watchdog;
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 void setup() 
 {
-  RoveComm.begin(ROVE_FIRST_OCTET, ROVE_SECOND_OCTET, ROVE_THIRD_OCTET, GIMBALBOARD_FOURTH_OCTET);
+  roveComm_Begin(ROVE_FIRST_OCTET, ROVE_SECOND_OCTET, ROVE_THIRD_OCTET, GIMBALBOARD_FOURTH_OCTET);
   delay(1);
   
   Serial.begin(9600);
@@ -130,17 +130,19 @@ void setup()
 ///////////////////////////////////////////////////////////////////
 void loop()
 {   
-  RoveComm.read(&data_id, &data_size, data);
+  roveComm_GetMsg(&data_id, &data_size, data);
+
+  data_id = GIMBAL_PAN_TILT_ROLL_MAST_ZOOM_FOCUS_OPEN_LOOP;
 
   Serial.print("ID: ");
   Serial.println(data_id);
   Serial.print("Value: ");
-  Serial.println(data);
+  Serial.println((int8_t)data[0]);
   
   TiltMotor.drive(250);
   switch(data_id)
   {
-    case GIMBAL_PAN_TILT_ROLL_ZOOM_FOCUS_OPEN_LOOP:
+    case GIMBAL_PAN_TILT_ROLL_MAST_ZOOM_FOCUS_OPEN_LOOP:
     {
       Watchdog.clear();
 
@@ -149,111 +151,66 @@ void loop()
       int16_t pan_speed   = (gimbal_values[0]);
       int16_t tilt_speed  = (gimbal_values[1]);
       int16_t roll_inc    = (gimbal_values[2]);
-      int16_t zoom_speed  = (gimbal_values[3]);
-      int16_t focus_speed = (gimbal_values[4]);
+              mast_speed  = (gimbal_values[3]);
+      int16_t zoom_speed  = (gimbal_values[4]);
+      int16_t focus_speed = (gimbal_values[5]);
+
+      mast_speed = 1000;
       
       pan_speed = map(pan_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, PAN_MAX_REVERSE, PAN_MAX_FORWARD); 
       tilt_speed = map(tilt_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, TILT_MAX_REVERSE, TILT_MAX_FORWARD);  
       roll_servo_position += roll_inc; 
+      mast_speed = map(mast_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, MAST_MAX_REVERSE, MAST_MAX_FORWARD);  
       zoom_speed = map(zoom_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, RC_CAMERA_MAX_REVERSE, RC_CAMERA_MAX_FORWARD);  
       focus_speed = map(focus_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, RC_CAMERA_MAX_REVERSE, RC_CAMERA_MAX_FORWARD);  
       
-      
       PanMotor.drive(pan_speed);       
       TiltMotor.drive(tilt_speed); 
-      RollServo.write(roll_servo_position);   
-      CameraZoom.writeMicroseconds(zoom_speed);
-      CameraFocus.writeMicroseconds(focus_speed);
+      RollServo.write(roll_servo_position); 
+      if(!((mast_speed > 0) && !digitalRead(MAST_TOP_LIMIT_SWITCH_PIN)))
+      {
+        MastMotor.drive(mast_speed);
+        Serial.println("Mast Moving");
+      }
 
       Serial.print("Pan: ");
       Serial.println(pan_speed);
       Serial.print("Tilt: ");
       Serial.println(tilt_speed);
       Serial.print("Roll: ");
-      Serial.println(roll_servo_position);
+      Serial.println(roll_inc);
+      Serial.print("Mast: ");
+      Serial.println(mast_speed);
       Serial.print("Zoom: ");
-      Serial.println(zoom_speed);
+      Serial.println(zoom_ed);
       Serial.print("Focus: ");
       Serial.println(focus_speed);
-
-      break;
-    }
-   
-    case MAST_MOVE_OPEN_LOOP:
-    {
-      Watchdog.clear();
-      mast_move_to_position = 0; 
-      int mast_speed = *(int16_t*)(data);  
-      mast_speed = map(mast_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, MAST_MAX_REVERSE, MAST_MAX_FORWARD);    
-      mast_going_up = (mast_speed == abs(mast_speed));
-      if(digitalRead(MAST_TOP_LIMIT_SWITCH_PIN)    && mast_going_up)
-      {
-        MastMotor.brake(0);
-        break;  
-      }
-      else if(digitalRead(MAST_BOTTOM_LIMIT_SWITCH_PIN) && !mast_going_up)
-      {
-        MastMotor.brake(0);
-        break;  
-        
-      }
       
-      MastMotor.drive(mast_speed);  
+      CameraZoom.writeMicroseconds(zoom_speed);
+      CameraFocus.writeMicroseconds(focus_speed);
+
+      Serial.println(mast_speed);
       break;
     }
 
-   case MAST_MOVE_TO_POSITION:
-    {    
-      mast_move_to_position = data[0]+1; //I asked Skelton to send 0 for position down, 1 for position up
-      Watchdog.clear();
-      break;
-    }
     
     default:
       break;
   }//End Switch Data ID
+  Serial.println(mast_speed);
+  Serial.println((mast_speed > 0));
+  Serial.println(!digitalRead(MAST_TOP_LIMIT_SWITCH_PIN));
+if((mast_speed > 0) && !digitalRead(MAST_TOP_LIMIT_SWITCH_PIN))
+{
+  MastMotor.brake(mast_speed);
+  Serial.println("Mast Brake");
+}
 
-  ////////////////////////////////////////
-  //        Mast   Functions            //
-  ////////////////////////////////////////
-  Serial.println(mast_move_to_position);
-  
-  if(mast_move_to_position == 1)
-  {
-    if(digitalRead(MAST_BOTTOM_LIMIT_SWITCH_PIN))
-    {
-      mast_move_to_position = 0;
-    }
-    else
-    {
-      MastMotor.drive(-MAST_CLOSED_LOOP_SPEED);
-      Serial.println("Going DOWN");
-     mast_going_up = 0;
-    }
-  }
-  else if(mast_move_to_position == 2) 
-  {
-    if(digitalRead(MAST_TOP_LIMIT_SWITCH_PIN))
-    {
-      mast_move_to_position = 0;
-    }
-    else
-    {
-      MastMotor.drive( MAST_CLOSED_LOOP_SPEED);
-      Serial.println("Going UP");
-      mast_going_up = 1;
-    }
-    
-  }
-  
-  if(digitalRead(MAST_TOP_LIMIT_SWITCH_PIN)    && mast_going_up)
-  {
-    MastMotor.brake(0); 
-  }
-  else if(digitalRead(MAST_BOTTOM_LIMIT_SWITCH_PIN) && !mast_going_up)
-  {
-    MastMotor.brake(0);   
-  }
+if(digitalRead(MAST_TOP_LIMIT_SWITCH_PIN))
+{
+  roll_servo_position = 90;
+  RollServo.write(roll_servo_position);
+}
   
   
 }
