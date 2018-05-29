@@ -47,9 +47,9 @@ const uint8_t CAMERA_ZOOM_PIN  = PK_0; //Camera Zoom  runs off X7 Limit Switch 2
 const uint8_t CAMERA_FOCUS_PIN = PB_5; //Camera Focus runs off X7 Limit Switch 3
 
 //Zoom Setup//////////////////////////
-const int CAMERA_SHORT_SIGNAL  = 1000;
-const int CAMERA_MIDDLE_SIGNAL = 1500;
-const int CAMERA_LONG_SIGNAL   = 2000;
+const int RC_CAMERA_MAX_REVERSE = 1000;
+const int RC_CAMERA_ZERO        = 1500;
+const int RC_CAMERA_MAX_FORWARD = 2000;
 
 //Mast Encoder Setup///////////////////////
 const uint16_t MAST_UP_SERVO_VALUE    = 1;
@@ -57,6 +57,9 @@ const uint16_t MAST_DOWN_SERVO_VALUE  = 1;
 const int      MAST_CLOSED_LOOP_SPEED = 300; 
 uint8_t        mast_move_to_position  = 0;
 bool           mast_going_up;
+
+////////////////////////////////
+int16_t roll_servo_position = 0;
 
 //Map Values//////////////////////
 const int PAN_MAX_FORWARD  =  250;
@@ -85,6 +88,8 @@ RoveVnh5019 PanMotor;
 RoveVnh5019 TiltMotor;
 RoveVnh5019 MastMotor;
 Servo       RollServo;
+Servo       CameraZoom;
+Servo       CameraFocus;
 
 void estop(); // Watchdog Estop Function
 void generateCameraSignal(int amt, int pin);
@@ -95,16 +100,20 @@ void setup()
   RoveComm.begin(ROVE_FIRST_OCTET, ROVE_SECOND_OCTET, ROVE_THIRD_OCTET, GIMBALBOARD_FOURTH_OCTET);
   delay(1);
   
- // Serial.begin(9600);
+  Serial.begin(9600);
   delay(1);
   
   PanMotor.begin( PAN_INA_PIN,  PAN_INB_PIN,  PAN_PWM_PIN);
   TiltMotor.begin(TILT_INA_PIN, TILT_INB_PIN, TILT_PWM_PIN);   
   MastMotor.begin(MAST_INA_PIN, MAST_INB_PIN, MAST_PWM_PIN);  
   
-  RollServo.attach(ROLL_SERVO_PIN);
+  RollServo.attach(  ROLL_SERVO_PIN);
+  CameraZoom.attach( CAMERA_ZOOM_PIN,  RC_CAMERA_MAX_REVERSE, RC_CAMERA_MAX_FORWARD);
+  CameraFocus.attach(CAMERA_FOCUS_PIN, RC_CAMERA_MAX_REVERSE, RC_CAMERA_MAX_FORWARD);
   delay(10);
   RollServo.write(90);
+  CameraZoom.writeMicroseconds( RC_CAMERA_ZERO);
+  CameraFocus.writeMicroseconds(RC_CAMERA_ZERO);
   pinMode(CAMERA_ZOOM_PIN,  OUTPUT);
   pinMode(CAMERA_FOCUS_PIN, OUTPUT);
 
@@ -123,74 +132,53 @@ void loop()
 {   
   RoveComm.read(&data_id, &data_size, data);
 
+  Serial.print("ID: ");
+  Serial.println(data_id);
+  Serial.print("Value: ");
+  Serial.println(data);
+  
   TiltMotor.drive(250);
   switch(data_id)
   {
-    case GIMBAL_PAN:
+    case GIMBAL_PAN_TILT_ROLL_ZOOM_FOCUS_OPEN_LOOP:
     {
-      int pan_speed = *(int16_t*)(data);  
-      pan_speed = map(pan_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, PAN_MAX_REVERSE, PAN_MAX_FORWARD);
+      Watchdog.clear();
+
+      int16_t *gimbal_values = ((int16_t*)(data));
+      
+      int16_t pan_speed   = (gimbal_values[0]);
+      int16_t tilt_speed  = (gimbal_values[1]);
+      int16_t roll_inc    = (gimbal_values[2]);
+      int16_t zoom_speed  = (gimbal_values[3]);
+      int16_t focus_speed = (gimbal_values[4]);
+      
+      pan_speed = map(pan_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, PAN_MAX_REVERSE, PAN_MAX_FORWARD); 
+      tilt_speed = map(tilt_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, TILT_MAX_REVERSE, TILT_MAX_FORWARD);  
+      roll_servo_position += roll_inc; 
+      zoom_speed = map(zoom_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, RC_CAMERA_MAX_REVERSE, RC_CAMERA_MAX_FORWARD);  
+      focus_speed = map(focus_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, RC_CAMERA_MAX_REVERSE, RC_CAMERA_MAX_FORWARD);  
+      
+      
       PanMotor.drive(pan_speed);       
-      Watchdog.clear();
+      TiltMotor.drive(tilt_speed); 
+      RollServo.write(roll_servo_position);   
+      CameraZoom.writeMicroseconds(zoom_speed);
+      CameraFocus.writeMicroseconds(focus_speed);
+
+      Serial.print("Pan: ");
+      Serial.println(pan_speed);
+      Serial.print("Tilt: ");
+      Serial.println(tilt_speed);
+      Serial.print("Roll: ");
+      Serial.println(roll_servo_position);
+      Serial.print("Zoom: ");
+      Serial.println(zoom_speed);
+      Serial.print("Focus: ");
+      Serial.println(focus_speed);
+
       break;
     }
-
-    case GIMBAL_TILT:
-    {
-      int tilt_speed = *(int16_t*)(data);   
-      tilt_speed = map(tilt_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, TILT_MAX_REVERSE, TILT_MAX_FORWARD);    
-      TiltMotor.drive(tilt_speed);       
-      Watchdog.clear();
-      break;
-    }
-
-    case GIMBAL_ROLL:
-    {
-      int servo_position = data[0];       
-      RollServo.write(servo_position);       
-      Watchdog.clear();
-      break;
-    }
-
-    case CAMERA1_COMMAND:
-    {
-      int command = data[0];      
-      switch(command)
-        {
-          case CAMERA_STOP:
-          {
-            generateCameraSignal(CAMERA_MIDDLE_SIGNAL, CAMERA_ZOOM_PIN);
-            generateCameraSignal(CAMERA_MIDDLE_SIGNAL, CAMERA_FOCUS_PIN);
-            break;
-          }
-  
-          case CAMERA_ZOOM_IN:
-          {
-            generateCameraSignal(CAMERA_LONG_SIGNAL, CAMERA_ZOOM_PIN);
-            break;
-          }
-
-          case CAMERA_ZOOM_OUT:
-          {
-            generateCameraSignal(CAMERA_SHORT_SIGNAL, CAMERA_ZOOM_PIN);
-            break;
-          }
-        
-          case CAMERA_FOCUS_IN:
-          {
-            generateCameraSignal(CAMERA_LONG_SIGNAL, CAMERA_ZOOM_PIN);
-            break;
-          }
-          
-          case CAMERA_FOCUS_OUT:
-          {
-            generateCameraSignal(CAMERA_SHORT_SIGNAL, CAMERA_ZOOM_PIN);
-            break;
-          }
-        }//End Case Camera Command
-        Watchdog.clear(); 
-    }  
-    
+   
     case MAST_MOVE_OPEN_LOOP:
     {
       Watchdog.clear();
