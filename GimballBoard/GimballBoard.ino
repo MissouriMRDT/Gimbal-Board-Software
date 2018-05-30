@@ -39,17 +39,19 @@ const uint8_t MAST_TOP_LIMIT_SWITCH_PIN    = PE_3;  //Using X9 Limit Switch 1
 const uint8_t MAST_BOTTOM_LIMIT_SWITCH_PIN = PE_2;  //Using X9 Limit Switch 2
 
 //////////////////////////////////////////
-//Roll Servo runs off X7 Limit Switch 1
-const uint8_t ROLL_SERVO_PIN = PK_1;
+//Roll Servo runs off X7 LS 1
+const uint8_t ROLL_SERVO_PIN = PK_0;
+//////////////////////////////////////PK_0///////////////////////////////////////
+const uint8_t CAMERA_ON_OFF_PIN  = PK_0; //Camera On Off runs off X7 Limit Switch 2
+const uint8_t CAMERA_RECORD_PIN  = PB_5; //Camera Record runs off X7 Limit Switch 3
+const uint8_t CAMERA_ZOOM_PIN    = PB_4; //Camera Zoom  runs off X7 Limit Switch 4
+const uint8_t CAMERA_FOCUS_PIN   = PB_5; //Camera Focus  runs off X7 Limit Switch 3
 
-/////////////////////////////////////////////////////////////////////////////
-const uint8_t CAMERA_ZOOM_PIN  = PK_0; //Camera Zoom  runs off X7 Limit Switch 2
-const uint8_t CAMERA_FOCUS_PIN = PB_5; //Camera Focus runs off X7 Limit Switch 3
 
 //Zoom Setup//////////////////////////
-const int RC_CAMERA_MAX_REVERSE = 1000;
-const int RC_CAMERA_ZERO        = 1500;
-const int RC_CAMERA_MAX_FORWARD = 2000;
+const int RC_CAMERA_MAX_REVERSE = 0;
+const int RC_CAMERA_ZERO        = 90;
+const int RC_CAMERA_MAX_FORWARD = 180;
 
 //Mast Encoder Setup///////////////////////
 const uint16_t MAST_UP_SERVO_VALUE    = 1;
@@ -79,15 +81,18 @@ const int MAST_MAX_REVERSE = -250;
 //Read Variables////
 uint16_t data_id; 
 size_t   data_size; 
-uint8_t  data[2];
+uint8_t  data[10];
 
 //////////////////////
 RoveVnh5019 PanMotor;
 RoveVnh5019 TiltMotor;
 RoveVnh5019 MastMotor;
 Servo       RollServo;
+Servo       CameraOnOff;
+Servo       CameraRecord;
 Servo       CameraZoom;
 Servo       CameraFocus;
+
 
 void estop(); // Watchdog Estop Function
 void generateCameraSignal(int amt, int pin);
@@ -99,21 +104,28 @@ void setup()
 {
   roveComm_Begin(ROVE_FIRST_OCTET, ROVE_SECOND_OCTET, ROVE_THIRD_OCTET, GIMBALBOARD_FOURTH_OCTET);
   delay(1);
-  
+
   Serial.begin(9600);
   delay(1);
+
+  pinMode(ROLL_SERVO_PIN, OUTPUT);
   
   PanMotor.begin( PAN_INA_PIN,  PAN_INB_PIN,  PAN_PWM_PIN);
   TiltMotor.begin(TILT_INA_PIN, TILT_INB_PIN, TILT_PWM_PIN);   
   MastMotor.begin(MAST_INA_PIN, MAST_INB_PIN, MAST_PWM_PIN);  
   
   RollServo.attach(  ROLL_SERVO_PIN);
-  CameraZoom.attach( CAMERA_ZOOM_PIN,  RC_CAMERA_MAX_REVERSE, RC_CAMERA_MAX_FORWARD);
-  CameraFocus.attach(CAMERA_FOCUS_PIN, RC_CAMERA_MAX_REVERSE, RC_CAMERA_MAX_FORWARD);
+  CameraZoom.attach( CAMERA_ZOOM_PIN);
+  CameraOnOff.attach(CAMERA_ON_OFF_PIN);
+  CameraRecord.attach(CAMERA_RECORD_PIN);
+  
   delay(10);
   RollServo.write(90);
-  CameraZoom.writeMicroseconds( RC_CAMERA_ZERO);
-  CameraFocus.writeMicroseconds(RC_CAMERA_ZERO);
+  
+  CameraZoom.write(RC_CAMERA_ZERO);
+  CameraOnOff.write(RC_CAMERA_ZERO);
+  CameraRecord.write(RC_CAMERA_ZERO);
+  
   pinMode(CAMERA_ZOOM_PIN,  OUTPUT);
   pinMode(CAMERA_FOCUS_PIN, OUTPUT);
 
@@ -122,6 +134,9 @@ void setup()
   
   pinMode(MAST_TOP_LIMIT_SWITCH_PIN,    INPUT);
   pinMode(MAST_BOTTOM_LIMIT_SWITCH_PIN, INPUT);
+
+  pinMode(ROLL_SERVO_PIN, OUTPUT);
+  
   delay(10);
    
   Watchdog.begin(estop, 500);
@@ -131,18 +146,18 @@ void setup()
 void loop()
 {   
   roveComm_GetMsg(&data_id, &data_size, data);
+  Watchdog.clear();
 
-  data_id = GIMBAL_PAN_TILT_ROLL_MAST_ZOOM_FOCUS_OPEN_LOOP;
-
+ Serial.println("");
   Serial.print("ID: ");
   Serial.println(data_id);
-  Serial.print("Value: ");
-  Serial.println((int8_t)data[0]);
-  
-  TiltMotor.drive(250);
+  Serial.print("Data: ");
+  Serial.println(*(int16_t*)data);
+  delay(10);
+   
   switch(data_id)
   {
-    case GIMBAL_PAN_TILT_ROLL_MAST_ZOOM_FOCUS_OPEN_LOOP:
+    case GIMBAL_PAN_TILT_ROLL_MAST_ZOOM_OPEN_LOOP:
     {
       Watchdog.clear();
 
@@ -155,24 +170,7 @@ void loop()
       int16_t zoom_speed  = (gimbal_values[4]);
       int16_t focus_speed = (gimbal_values[5]);
 
-      mast_speed = 1000;
-      
-      pan_speed = map(pan_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, PAN_MAX_REVERSE, PAN_MAX_FORWARD); 
-      tilt_speed = map(tilt_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, TILT_MAX_REVERSE, TILT_MAX_FORWARD);  
-      roll_servo_position += roll_inc; 
-      mast_speed = map(mast_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, MAST_MAX_REVERSE, MAST_MAX_FORWARD);  
-      zoom_speed = map(zoom_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, RC_CAMERA_MAX_REVERSE, RC_CAMERA_MAX_FORWARD);  
-      focus_speed = map(focus_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, RC_CAMERA_MAX_REVERSE, RC_CAMERA_MAX_FORWARD);  
-      
-      PanMotor.drive(pan_speed);       
-      TiltMotor.drive(tilt_speed); 
-      RollServo.write(roll_servo_position); 
-      if(!((mast_speed > 0) && !digitalRead(MAST_TOP_LIMIT_SWITCH_PIN)))
-      {
-        MastMotor.drive(mast_speed);
-        Serial.println("Mast Moving");
-      }
-
+      delay(10);
       Serial.print("Pan: ");
       Serial.println(pan_speed);
       Serial.print("Tilt: ");
@@ -182,24 +180,45 @@ void loop()
       Serial.print("Mast: ");
       Serial.println(mast_speed);
       Serial.print("Zoom: ");
-      Serial.println(zoom_ed);
-      Serial.print("Focus: ");
-      Serial.println(focus_speed);
+      Serial.println(zoom_speed);
       
-      CameraZoom.writeMicroseconds(zoom_speed);
-      CameraFocus.writeMicroseconds(focus_speed);
+      pan_speed = map(pan_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, PAN_MAX_REVERSE, PAN_MAX_FORWARD); 
+      tilt_speed = map(tilt_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, TILT_MAX_REVERSE, TILT_MAX_FORWARD);  
+      roll_servo_position += roll_inc; 
+      mast_speed = map(mast_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, MAST_MAX_REVERSE, MAST_MAX_FORWARD);  
+      zoom_speed = map(zoom_speed, RED_MAX_REVERSE, RED_MAX_FORWARD, RC_CAMERA_MAX_REVERSE, RC_CAMERA_MAX_FORWARD);  
+
+      Serial.println("");
+      Serial.print("Pan: ");
+      Serial.println(pan_speed);
+      Serial.print("Tilt: ");
+      Serial.println(tilt_speed);
+      Serial.print("Roll: ");
+      Serial.println(roll_inc);
+      Serial.print("Mast: ");
+      Serial.println(mast_speed);
+      Serial.print("Zoom: ");
+      Serial.println(zoom_speed);
+      
+      PanMotor.drive(pan_speed);       
+      TiltMotor.drive(tilt_speed); 
+   //   CameraOnOff.write(roll_servo_position); 
+      if(!((mast_speed > 0) && !digitalRead(MAST_TOP_LIMIT_SWITCH_PIN)))
+      {
+        MastMotor.drive(mast_speed);
+        Serial.println("Mast Moving");
+      }
+      
+      CameraZoom.write(zoom_speed);
 
       Serial.println(mast_speed);
       break;
     }
 
-    
     default:
       break;
   }//End Switch Data ID
-  Serial.println(mast_speed);
-  Serial.println((mast_speed > 0));
-  Serial.println(!digitalRead(MAST_TOP_LIMIT_SWITCH_PIN));
+  
 if((mast_speed > 0) && !digitalRead(MAST_TOP_LIMIT_SWITCH_PIN))
 {
   MastMotor.brake(mast_speed);
@@ -209,7 +228,8 @@ if((mast_speed > 0) && !digitalRead(MAST_TOP_LIMIT_SWITCH_PIN))
 if(digitalRead(MAST_TOP_LIMIT_SWITCH_PIN))
 {
   roll_servo_position = 90;
-  RollServo.write(roll_servo_position);
+  Serial.println("SERVO");
+ // RollServo.write(roll_servo_position);
 }
   
   
