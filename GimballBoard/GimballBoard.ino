@@ -77,6 +77,9 @@ const int MAST_MAX_REVERSE = -250;
 // RoveComm Setup //
 ////////////////////
 
+const uint16_t GIMBAL_VALUES = 1557;
+const uint16_t GIMBAL_RECORD = 1558;
+
 //Read Variables////
 uint16_t data_id; 
 size_t   data_size; 
@@ -86,13 +89,21 @@ uint8_t  data[10];
 RoveVnh5019 PanMotor;
 RoveVnh5019 TiltMotor;
 RoveVnh5019 MastMotor;
-Servo       CameraOnOff;
+Servo       CameraRoll;
 Servo       CameraRecord;
 Servo       CameraZoom;
+
+enum GimbalRecordVal
+{
+  GimbalRecordStop = 0,
+  GimbalRecordStart = 1,
+  GimbalRecordSnapshot = 2
+};
 
 
 void estop(); // Watchdog Estop Function
 void generateCameraSignal(int amt, int pin);
+void gimbalRecord(GimbalRecordVal recordVal);
 
 RoveWatchdog Watchdog;
 
@@ -112,13 +123,13 @@ void setup()
   MastMotor.begin(MAST_INA_PIN, MAST_INB_PIN, MAST_PWM_PIN);  
   
   CameraZoom.attach(CAMERA_ZOOM_PIN);
-  CameraOnOff.attach(CAMERA_ON_OFF_PIN);
+  CameraRoll.attach(CAMERA_ON_OFF_PIN);
   CameraRecord.attach(CAMERA_RECORD_PIN);
   
   delay(10);
   
   CameraZoom.write(RC_CAMERA_ZERO);
-  CameraOnOff.write(RC_CAMERA_ZERO);
+  CameraRoll.write(RC_CAMERA_ZERO);
   CameraRecord.write(RC_CAMERA_ZERO);
   
   pinMode(CAMERA_ZOOM_PIN,  OUTPUT);
@@ -146,7 +157,7 @@ void loop()
   {
     switch(data_id)
     {
-      case 1557:
+      case GIMBAL_VALUES:
       {
         Watchdog.clear();
   
@@ -167,7 +178,7 @@ void loop()
 
         PanMotor.drive(pan_speed);       
         TiltMotor.drive(tilt_speed); 
-        CameraOnOff.write(roll_servo_position); 
+        CameraRoll.write(roll_servo_position); 
         
         if(((mast_speed > 0) && digitalRead(MAST_TOP_LIMIT_SWITCH_PIN)))
         {
@@ -177,9 +188,17 @@ void loop()
         MastMotor.drive(mast_speed);
         
         CameraZoom.write(zoom_speed);
+
+        Serial.print("Zoom: "); Serial.println(zoom_speed);
+        Serial.print("Roll: "); Serial.println(roll_servo_position);
         break;
       }
-  
+
+      case GIMBAL_RECORD:
+      {
+        gimbalRecord((GimbalRecordVal)data[0]);
+        break;
+      }
       
       default:
         break;
@@ -190,7 +209,7 @@ void loop()
   {
     roll_servo_position = 90;
     Serial.println("SERVO");
-    CameraOnOff.write(roll_servo_position);
+    CameraRoll.write(roll_servo_position);
   }
   
   
@@ -218,5 +237,23 @@ void generateCameraSignal(int amt, int pin)
     delayMicroseconds(20000-amt);
   }
   return;
+}
+
+void gimbalRecord(GimbalRecordVal recordVal)
+{
+  if(recordVal == GimbalRecordStop)
+  {
+    CameraRecord.write(90);
+  }
+  else if(recordVal == GimbalRecordStart)
+  {
+    CameraRecord.write(0);
+  }
+  else
+  {
+    CameraRecord.write(180);
+    delay(10);
+    CameraRecord.write(90);
+  }
 }
 
