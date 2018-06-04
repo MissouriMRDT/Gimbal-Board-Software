@@ -247,11 +247,11 @@ void gimbalRecord(GimbalRecordVal recordVal)
   }
   else if(recordVal == GimbalRecordStart)
   {
-    CameraRecord.write(0);
+    CameraRecord.write(180);
   }
   else
   {
-    CameraRecord.write(180);
+    CameraRecord.write(0);
     delay(10);
     CameraRecord.write(90);
   }
